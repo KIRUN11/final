@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport"content="width=device-width,initial-scale=1.0"/>
+  <title>Customer Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{background:#fefaf2;color:#2d2d2d;font-family:sans-serif;padding:2rem;}
+    .card{background:#fff4e6;border:1px solid #e2d7c3;margin-bottom:1rem;padding:1rem;border-radius:0.5rem;cursor:pointer; display: flex; justify-content: space-between; align-items: center;}
+    .card-info { flex-grow: 1; cursor: pointer; }
+    .btn {padding:0.3rem 0.6rem; margin-left: 0.5rem; border:none; border-radius:0.25rem; cursor:pointer; font-size: 0.85rem;}
+    .complete-btn {background:#1976d2;color:white;}
+    .delete-btn {background:#f44336;color:white;}
+    #modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);align-items:center;justify-content:center;}
+    .modal-content{background:#fff;padding:2rem;border-radius:0.5rem;max-width:400px;width:90%;position:relative;}
+  </style>
+</head>
+<body>
+  <h1 class="text-3xl text-center mb-6">Customer Dashboard</h1>
+  <div class="text-center mb-4">
+    <strong>My Requests:</strong> <span id="requestCount" class="text-xl"></span>
+  </div>
+  <div id="requestList"></div>
+
+  <div id="modal">
+    <div class="modal-content">
+      <button id="modalClose" style="position:absolute;top:10px;right:10px;">×</button>
+      <h3 class="font-bold text-lg mb-2">Request Details</h3>
+      <p><strong>Service:</strong> <span id="modalService"></span></p>
+      <p><strong>Description:</strong> <span id="modalDesc"></span></p>
+      <p><strong>Status:</strong> <span id="modalStatus"></span></p>
+      <div id="providerInfo" style="display:none;margin-top:1rem;">
+        <h4 class="font-semibold">Provider Details</h4>
+        <p><strong>Name:</strong> <span id="providerName"></span></p>
+        <p><strong>Phone:</strong> <span id="providerPhone"></span></p>
+        <p><strong>Email:</strong> <span id="providerEmail"></span></p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+    import {
+      getFirestore,
+      collection,
+      query,
+      where,
+      onSnapshot,
+      doc,
+      getDoc,
+      updateDoc,
+      deleteDoc
+    } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDhIJ4a4mEHbLYDXmOXorGe0VJ4l6XVqFE",
+      authDomain: "finaldemo-38f19.firebaseapp.com",
+      projectId: "finaldemo-38f19",
+      storageBucket: "finaldemo-38f19.firebasestorage.app",
+      messagingSenderId: "260614975704",
+      appId: "1:260614975704:web:c215f2d1fc257d522da7ad",
+      measurementId: "G-0LV0B261XQ"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    const requestCount = document.getElementById('requestCount');
+    const requestList = document.getElementById('requestList');
+    const modal = document.getElementById('modal');
+    const modalClose = document.getElementById('modalClose');
+    const modalService = document.getElementById('modalService');
+    const modalDesc = document.getElementById('modalDesc');
+    const modalStatus = document.getElementById('modalStatus');
+    const providerInfo = document.getElementById('providerInfo');
+    const providerName = document.getElementById('providerName');
+    const providerPhone = document.getElementById('providerPhone');
+    const providerEmail = document.getElementById('providerEmail');
+
+    let currentUserId = null;
+
+    onAuthStateChanged(auth, user => {
+      if (!user) return window.location.href="../login.html";
+      currentUserId = user.uid;
+      loadRequests();
+    });
+
+    function loadRequests() {
+      const q = query(collection(db,'requests'), where('uid','==',currentUserId));
+      onSnapshot(q, snap => {
+        requestCount.textContent = snap.size;
+        requestList.innerHTML = '';
+        snap.docs.forEach(docSnap => {
+          const data = docSnap.data();
+          const id = docSnap.id;
+
+          // Create container div
+          const card = document.createElement('div');
+          card.className = 'card';
+
+          // Info div clickable to open modal
+          const infoDiv = document.createElement('div');
+          infoDiv.className = 'card-info';
+          infoDiv.innerHTML = `<strong>${data.serviceType}</strong>
+                               <p>${data.description?.slice(0, 50)}</p>
+                               <p><em>Status: ${data.status}</em></p>`;
+          infoDiv.onclick = () => openModal(id, data);
+          card.appendChild(infoDiv);
+
+          // Buttons container
+          const btnContainer = document.createElement('div');
+
+          // Show "Mark Completed" button only if accepted and not yet completed by user
+          if (data.status === 'accepted' && !data.userCompleted) {
+            const completeBtn = document.createElement('button');
+            completeBtn.textContent = 'Mark Completed';
+            completeBtn.className = 'btn complete-btn';
+            completeBtn.onclick = async (e) => {
+              e.stopPropagation();
+              await markCompleted(id, data);
+            };
+            btnContainer.appendChild(completeBtn);
+          }
+
+          // Show Delete button for all requests (or you can limit to certain statuses)
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.className = 'btn delete-btn';
+          deleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+            const confirmDelete = confirm("Are you sure you want to delete this request?");
+            if (confirmDelete) {
+              await deleteRequest(id);
+            }
+          };
+          btnContainer.appendChild(deleteBtn);
+
+          card.appendChild(btnContainer);
+          requestList.appendChild(card);
+        });
+      });
+    }
+
+    async function openModal(id, data) {
+      modalService.textContent = data.serviceType;
+      modalDesc.textContent = data.description;
+      modalStatus.textContent = data.status;
+
+      if (data.providerId) {
+        const providerSnap = await getDoc(doc(db, 'providercreds', data.providerId));
+        if (providerSnap.exists()) {
+          const p = providerSnap.data();
+          providerInfo.style.display = 'block';
+          providerName.textContent = p.name;
+          providerPhone.textContent = p.phone;
+          providerEmail.textContent = p.email;
+        } else {
+          providerInfo.style.display = 'none';
+        }
+      } else {
+        providerInfo.style.display = 'none';
+      }
+
+      modal.style.display = 'flex';
+    }
+
+    modalClose.onclick = () => modal.style.display = 'none';
+    window.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+    async function markCompleted(id, data) {
+      try {
+        await updateDoc(doc(db, 'requests', id), { userCompleted: true });
+        // If provider also completed, update status to completed
+        if (data.providerCompleted) {
+          await updateDoc(doc(db, 'requests', id), { status: 'completed' });
+        }
+        alert('Marked as completed.');
+      } catch (error) {
+        alert('Error marking completed: ' + error.message);
+      }
+    }
+
+    async function deleteRequest(id) {
+      try {
+        await deleteDoc(doc(db, 'requests', id));
+      } catch (error) {
+        alert('Error deleting request: ' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>

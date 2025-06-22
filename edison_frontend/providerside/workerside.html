@@ -1,0 +1,165 @@
+    <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Worker Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #fdf4e3;
+      --card: #fff9f0;
+      --text: #3a2e28;
+      --accent: #b3543f;
+      --accept: #50734a;
+      --reject: #9c4b3f;
+      --border: #e2d7c3;
+    }
+    #map {
+      height: 300px;
+      width: 100%;
+      border-radius: 0.75rem;
+      margin-top: 1rem;
+      border: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-6">
+  <div class="max-w-5xl mx-auto">
+    <h1 class="text-2xl font-bold mb-6 text-center">Worker Dashboard</h1>
+
+    <!-- Job Counts -->
+    <div class="grid grid-cols-2 gap-6 mb-8">
+      <div class="bg-white p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-2">Completed Jobs</h2>
+        <p id="completedCount" class="text-3xl font-bold text-green-600">0</p>
+      </div>
+      <div class="bg-white p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-2">Pending Requests</h2>
+        <p id="pendingCount" class="text-3xl font-bold text-yellow-500">0</p>
+      </div>
+    </div>
+
+    <!-- Work Summary -->
+    <h2 class="text-xl font-semibold mb-4">Work Summary</h2>
+    <div id="summaryList" class="space-y-4"></div>
+
+    <!-- Modal -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+      <div class="bg-white rounded p-6 w-full max-w-lg relative">
+        <button id="closeModal" class="absolute top-2 right-2 text-gray-600">&times;</button>
+        <h3 class="text-xl font-bold mb-4">Job Details</h3>
+        <p class="mb-2"><strong>Customer Name:</strong> <span id="modalCustomer"></span></p>
+        <p class="mb-2"><strong>Service Needed:</strong> <span id="modalService"></span></p>
+        <p class="mb-2"><strong>Request Time:</strong> <span id="modalTime"></span></p>
+        <p class="mb-2"><strong>Address:</strong> <span id="modalAddress"></span></p>
+        <!-- Map Popup Section -->
+        <div class="mt-6">
+          <p class="font-semibold">📍 Location:</p>
+          <div id="map"></div>
+        </div>
+        <!-- Action Buttons -->
+        <div class="flex justify-between mt-4">
+          <button class="btn reject-btn bg-red-500 text-white px-4 py-2 rounded">❌ Reject</button>
+          <button class="btn accept-btn bg-green-600 text-white px-4 py-2 rounded">✅ Accept</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+    import { getFirestore, collection, onSnapshot, doc, getDoc, Timestamp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCbxyzgc1Krn3GrZK6ZaHsm0Bibji-qgl4",
+      authDomain: "hack-b704e.firebaseapp.com",
+      projectId: "hack-b704e",
+      storageBucket: "hack-b704e.appspot.com",
+      messagingSenderId: "604628396347",
+      appId: "1:604628396347:web:xyz"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const completedCountEl = document.getElementById("completedCount");
+    const pendingCountEl = document.getElementById("pendingCount");
+    const summaryListEl = document.getElementById("summaryList");
+
+    const modal = document.getElementById("modal");
+    const closeModal = document.getElementById("closeModal");
+    const modalCustomer = document.getElementById("modalCustomer");
+    const modalService = document.getElementById("modalService");
+    const modalTime = document.getElementById("modalTime");
+    const modalAddress = document.getElementById("modalAddress");
+
+    closeModal.onclick = () => modal.classList.add("hidden");
+
+    onSnapshot(collection(db, "requests"), (snapshot) => {
+      let pending = 0;
+      summaryListEl.innerHTML = "";
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const id = doc.id;
+
+        if (data.status !== true) {
+          pending++;
+
+          const card = document.createElement("div");
+          card.className = "bg-white p-4 rounded shadow flex justify-between items-center";
+          card.innerHTML = `
+            <div>
+              <h4 class="font-semibold text-lg">Request from ${data.customerName}</h4>
+              <p class="text-sm text-gray-600">Service Needed: ${data.serviceNeeded ? 'Yes' : 'No'}</p>
+            </div>
+            <button class="bg-blue-500 text-white px-4 py-2 rounded view-details" data-id="${id}">View Details</button>
+          `;
+          summaryListEl.appendChild(card);
+        }
+      });
+
+      if (pending === 0) {
+        summaryListEl.innerHTML = '<div class="text-center text-gray-500">No pending job requests available.</div>';
+      }
+
+      completedCountEl.textContent = "0";
+      pendingCountEl.textContent = pending;
+    });
+
+    document.addEventListener("click", async (e) => {
+      if (e.target.classList.contains("view-details")) {
+        const docId = e.target.dataset.id;
+        const docRef = doc(db, "requests", docId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          modalCustomer.textContent = data.customerName || "N/A";
+          modalService.textContent = typeof data.serviceNeeded === "boolean" ? (data.serviceNeeded ? "Yes" : "No") : "N/A";
+          modalTime.textContent = data.reqTime instanceof Timestamp ? data.reqTime.toDate().toLocaleString() : "N/A";
+          modalAddress.textContent = data.location?.address || "N/A";
+
+          if (data.location?.lat && data.location?.lng) {
+            setTimeout(() => {
+              const map = L.map('map').setView([data.location.lat, data.location.lng], 15);
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+              }).addTo(map);
+              L.marker([data.location.lat, data.location.lng]).addTo(map)
+                .bindPopup("📌 Customer Location").openPopup();
+            }, 100);
+          } else {
+            document.getElementById("map").innerHTML = "<p class='text-center text-sm text-gray-500 pt-4'>Location data not available</p>";
+          }
+          modal.classList.remove("hidden");
+        }
+      }
+    });
+  </script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</body>
+</html>
