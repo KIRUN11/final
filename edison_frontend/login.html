@@ -4,13 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="login.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <title>Login</title>
+  <style>
+    #map-container { width: 100%; height: 320px; margin-top: 1rem; border-radius: 12px; overflow: hidden; }
+    #map { width: 100%; height: 100%; }
+  </style>
 </head>
 <body>
   <div class="form-container">
     <div id="login-form">
       <h2 class="form-title">Login</h2>
-      <form>
+      <form id="loginForm">
         <div class="form-group">
           <label for="email">Email</label>
           <input type="email" id="email" placeholder="Enter your email" required />
@@ -28,10 +33,10 @@
 
     <div id="signup-form" class="hidden">
       <h2 class="form-title">Create Account</h2>
-      <form>
+      <form id="locationForm">
         <div class="form-group">
           <label for="name">Full Name</label>
-          <input type="text" id="name" placeholder="Enter your full name" required />
+          <input type="text" id="customerName" placeholder="Enter your full name" required />
         </div>
         <div class="form-group">
           <label for="new-email">Email</label>
@@ -45,6 +50,17 @@
           <label for="confirm-password">Confirm Password</label>
           <input type="password" id="confirm-password" placeholder="Confirm your password" required />
         </div>
+        <div class="form-group">
+          <label for="phone">Phone Number</label>
+          <input type="text" id="phone" placeholder="Enter your phone number" required />
+        </div>
+
+        <div class="form-group">
+          <label for="address">Address (search or click on map)</label>
+          <input type="text" id="address" placeholder="Search or click map" class="bg-gray-100" />
+          <div id="map-container"><div id="map"></div></div>
+        </div>
+
         <button type="submit" class="btn">Sign Up</button>
         <div class="form-footer">
           Already have an account? <a href="#" onclick="toggleForms()">Login</a>
@@ -53,7 +69,143 @@
     </div>
   </div>
 
-  <!-- This is now handled by main.js -->
-  <script type="module" src="main.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDhIJ4a4mEHbLYDXmOXorGe0VJ4l6XVqFE",
+      authDomain: "finaldemo-38f19.firebaseapp.com",
+      projectId: "finaldemo-38f19",
+      storageBucket: "finaldemo-38f19.appspot.com",
+      messagingSenderId: "260614975704",
+      appId: "1:260614975704:web:c215f2d1fc257d522da7ad"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    const map = L.map('map').setView([27.7172, 85.3240], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    let selectedLatLng = null;
+    let marker = null;
+    const addressInput = document.getElementById("address");
+
+    function placeMarker(latlng) {
+      selectedLatLng = latlng;
+      if (marker) {
+        marker.setLatLng(latlng);
+      } else {
+        marker = L.marker(latlng).addTo(map);
+      }
+    }
+
+    map.on('click', function (e) {
+      placeMarker(e.latlng);
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.latlng.lat}&lon=${e.latlng.lng}`)
+        .then(response => response.json())
+        .then(data => {
+          addressInput.value = data.display_name || `Lat: ${e.latlng.lat.toFixed(5)}, Lng: ${e.latlng.lng.toFixed(5)}`;
+        })
+        .catch(error => {
+          console.error("Reverse geocoding failed:", error);
+          addressInput.value = `Lat: ${e.latlng.lat.toFixed(5)}, Lng: ${e.latlng.lng.toFixed(5)}`;
+        });
+    });
+
+    addressInput.addEventListener("change", function () {
+      const query = addressInput.value.trim();
+      if (!query) return;
+
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.length > 0) {
+            const latlng = L.latLng(parseFloat(data[0].lat), parseFloat(data[0].lon));
+            map.setView(latlng, 16);
+            placeMarker(latlng);
+          }
+        });
+    });
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        function (position) {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          const latlng = L.latLng(lat, lng);
+          map.setView(latlng, 15);
+          placeMarker(latlng);
+
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+            .then(response => response.json())
+            .then(data => {
+              addressInput.value = data.display_name || `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+            });
+        },
+        function (error) {
+          console.warn("Geolocation error:", error.message);
+        }
+      );
+    }
+
+    function toggleForms() {
+      document.getElementById('login-form').classList.toggle('hidden');
+      document.getElementById('signup-form').classList.toggle('hidden');
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 400);
+    }
+
+    document.getElementById("locationForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const name = document.getElementById("customerName").value;
+      const email = document.getElementById("new-email").value;
+      const password = document.getElementById("new-password").value;
+      const phone = document.getElementById("phone").value;
+
+      if (!selectedLatLng) {
+        alert("Please select a location on the map.");
+        return;
+      }
+
+      auth.createUserWithEmailAndPassword(email, password)
+        .then((userCredential) => {
+          const userId = userCredential.user.uid;
+          return db.collection("usercreds").doc(userId).set({
+            name,
+            email,
+            phone,
+            location: new firebase.firestore.GeoPoint(selectedLatLng.lat, selectedLatLng.lng),
+            address: addressInput.value,
+            createdAt: firebase.firestore.Timestamp.now()
+          });
+        })
+        .then(() => {
+          alert("✅ Account created and location stored!");
+          window.location.reload();
+        })
+        .catch(err => {
+          console.error(err);
+          alert("❌ Failed to create account: " + err.message);
+        });
+    });
+
+    document.getElementById("loginForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      auth.signInWithEmailAndPassword(email, password)
+        .then(() => {
+          window.location.href = "index.html";
+        })
+        .catch(err => {
+          alert("❌ Login failed: " + err.message);
+        });
+    });
+  </script>
 </body>
 </html>
