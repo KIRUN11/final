@@ -2,6 +2,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebas
 import {
   getFirestore,
   collection,
+  doc,
+  getDoc,
   addDoc,
   Timestamp
 } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
@@ -30,7 +32,6 @@ window.addEventListener('DOMContentLoaded', () => {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    // Wait for auth state
     const user = await new Promise((resolve) => {
       const unsub = onAuthStateChanged(auth, (u) => {
         unsub();
@@ -44,7 +45,6 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // Get form values
     const selectedDateStr = form.selectedDate.value;
     const selectedTime = form.selectedTime.value;
     const description = form.description.value.trim();
@@ -63,14 +63,26 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // Convert date string (day of month) to Date object with current month/year
     const today = new Date();
     const selectedDay = parseInt(selectedDateStr, 10);
     const selectedDate = new Date(today.getFullYear(), today.getMonth(), selectedDay);
 
     try {
+      // Get name and phone from providercreds using UID
+      const providerDocRef = doc(db, "providercreds", user.uid);
+      const providerSnap = await getDoc(providerDocRef);
+
+      if (!providerSnap.exists()) {
+        alert("Provider credentials not found.");
+        return;
+      }
+
+      const { name, phone } = providerSnap.data();
+
       await addDoc(collection(db, "requests"), {
         uid: user.uid,
+        name: name || "", // fallback in case field is missing
+        phone: phone || "",
         serviceType,
         description,
         date: selectedDate,
